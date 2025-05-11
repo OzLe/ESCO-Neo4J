@@ -12,42 +12,47 @@ This tool is provided "AS IS", without warranty of any kind, express or implied,
 - Neo4j Database (version 5.x)
 - ESCO CSV files (v1.2.0 or compatible)
 
-## macOS Installation (Apple Silicon)
+## Environment Setup
 
-If you're using macOS on Apple Silicon (M1/M2/M3), follow these steps to ensure proper installation of dependencies:
+### Using Conda (Recommended)
 
-1. Start fresh (single toolchain):
+The easiest way to set up the environment is using the provided `environment.yml` file:
+
+1. Create and activate the environment:
 ```bash
-# remove the half-configured environment
-conda deactivate
-conda env remove -n esco || true   # ignore if it does not exist
-
-# create a pure ARM64 env
-conda create -n esco python=3.10 -c conda-forge
+conda env create -f environment.yml
 conda activate esco
 ```
 
-2. Install binary dependencies first:
+2. Verify the installation:
 ```bash
-conda install -c conda-forge libjpeg-turbo=3 pillow  # brings a matching pair
-# optional: if you need other compiled libs, install them here too
+python - <<'PY'
+import tiktoken, sentencepiece, google.protobuf, transformers
+print("All critical libraries imported successfully.")
+PY
 ```
 
-3. Install your Python stack:
+### Apple Silicon (M1/M2/M3) Notes
+
+The `environment.yml` file is already configured for Apple Silicon Macs and includes:
+- Native ARM64 builds for PyTorch with MPS support
+- Properly pinned dependencies for compatibility
+- Required system libraries through conda-forge
+
+If you encounter any issues:
+
+1. Ensure you're using the latest conda:
 ```bash
-python -m pip install --upgrade pip
-pip install sentence-transformers neo4j tqdm  # and the rest of requirements.txt
+conda update -n base conda
 ```
 
-This order guarantees that every wheel built from source (if any) sees conda-forge's compiler flags and libraries.
-
-4. Make sure user-site packages are not injected:
+2. Make sure user-site packages are not injected:
 ```bash
 # inside the conda shell:
 export PYTHONNOUSERSITE=1   # or add this in your ~/.zshrc
 ```
 
-5. Diagnostic sanity checks:
+3. For diagnostic checks:
 ```bash
 python - <<'PY'
 import importlib.util, subprocess, sys, os
@@ -68,10 +73,7 @@ git clone <repository-url>
 cd ESCO-Ingest
 ```
 
-2. Install the required dependencies:
-```bash
-pip install -r requirements.txt
-```
+2. Follow the Environment Setup instructions above to create and activate the conda environment.
 
 ## Configuration
 
@@ -185,6 +187,44 @@ The search functionality uses the `all-MiniLM-L6-v2` model for generating embedd
 - Node descriptions
 - Related entities (when using --related)
 - Graph context for each result
+
+### Hebrew Translation
+
+The tool includes functionality to translate English text to Hebrew using the T5 Hebrew translation model. This is particularly useful for creating Hebrew versions of node properties.
+
+To translate node properties to Hebrew:
+
+```bash
+python src/esco_translate.py --password "your_password" --property "preferredLabel" --type Skill
+```
+
+Additional translation options:
+- `--property`: The property to translate (e.g., "preferredLabel", "description")
+- `--type`: Node type to translate (Skill, Occupation, SkillGroup, or ISCOGroup)
+- `--batch-size`: Number of nodes to process in each batch (default: 100)
+- `--suffix`: Suffix for the translated property (default: "_he")
+
+Example with all options:
+```bash
+python src/esco_translate.py \
+    --password "your_password" \
+    --property "preferredLabel" \
+    --type Skill \
+    --batch-size 50 \
+    --suffix "_he"
+```
+
+The translation process:
+1. Loads the T5 Hebrew translation model
+2. Processes nodes in batches to optimize memory usage
+3. Creates new properties with the specified suffix
+4. Preserves the original English text
+5. Updates the Neo4j database with translated content
+
+Note: The translation model requires additional dependencies. Install them using:
+```bash
+pip install transformers torch
+```
 
 ## Data Model
 

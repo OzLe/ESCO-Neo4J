@@ -1,0 +1,41 @@
+name: esco
+channels:
+  - conda-forge
+dependencies:
+  # --- Core runtime ---
+  - python=3.10
+  - libjpeg-turbo          # guarantees JPEG symbols for Pillow
+
+  # --- Conda-native libraries (prefer conda wheels where stable) ---
+  - numpy==1.24.3
+  - pandas>=1.3.0
+  - pytorch>=2.0  # pulls the Apple-Silicon (MPS) build
+  - pip
+
+  # --- Everything else goes through pip to ensure exact versions ---
+  - pip:
+      # General tooling
+      - tqdm>=4.66
+      - neo4j>=4.0.0
+
+      # Text / NLP stack
+      - sentence-transformers>=2.2.0
+      - transformers>=4.49.1
+      - accelerate>=0.20.0
+      - torch>=2.0.0           # duplicate pin for pip coherence
+
+      # Tokenizers and language models
+      - sentencepiece>=0.1.99
+      - tokenizers>=0.19.0
+      - tiktoken>=0.6.0
+
+      # Compatibility hard pins
+      - protobuf==3.20.3       # transformers still requires <4
+      - pillow>=10.3.0         # ships its own JPEG symbols
+
+# Optional notes:
+# • If you use CUDA instead of Apple MPS, replace the pytorch line with
+#     - pytorch::pytorch==2.2=*cuda*
+#   or install the official wheel separately.
+# • PYTHONNOUSERSITE=1 is still recommended in your shell profile to
+#   prevent rogue user-site wheels from shadowing the env.

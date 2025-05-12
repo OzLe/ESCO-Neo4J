@@ -1,11 +1,9 @@
 import os
-from neo4j import GraphDatabase
 import pandas as pd
 from tqdm import tqdm
 import logging
 import argparse
-
-
+from neo4j_client import Neo4jClient
 
 # ESCO v1.2.0 (English) – CSV classification import for Neo4j 5.x
 # Oz Levi
@@ -16,17 +14,26 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 class ESCOIngest:
-    def __init__(self, uri, user, password, esco_dir):
-        self.driver = GraphDatabase.driver(uri, auth=(user, password))
-        self.esco_dir = esco_dir
-        self.batch_size = 50000
+    def __init__(self, config_path=None, profile='default'):
+        """
+        Initialize ESCO data ingestion
+        
+        Args:
+            config_path (str): Path to YAML config file
+            profile (str): Configuration profile to use ('default' or 'aura')
+        """
+        self.client = Neo4jClient(config_path, profile)
+        self.config = self.client.config
+        self.esco_dir = self.config['esco']['data_dir']
+        self.batch_size = self.config['esco']['batch_size']
 
     def close(self):
-        self.driver.close()
+        """Close the database connection"""
+        self.client.close()
 
     def delete_all_data(self):
         """Delete all nodes and relationships from the database"""
-        with self.driver.session() as session:
+        with self.client.driver.session() as session:
             # First drop all constraints
             constraints = [
                 "DROP CONSTRAINT skill_uri IF EXISTS",
@@ -36,15 +43,15 @@ class ESCOIngest:
                 "DROP CONSTRAINT iscogroup_code IF EXISTS"
             ]
             for constraint in constraints:
-                session.run(constraint)
+                self.client.execute_query(constraint, session=session)
             
             # Then delete all nodes and relationships
             query = "MATCH (n) DETACH DELETE n"
-            session.run(query)
+            self.client.execute_query(query, session=session)
             logger.info("Deleted all data from the database")
 
     def create_constraints(self):
-        with self.driver.session() as session:
+        with self.client.driver.session() as session:
             constraints = [
                 "CREATE CONSTRAINT skill_uri IF NOT EXISTS FOR (s:Skill) REQUIRE s.conceptUri IS UNIQUE",
                 "CREATE CONSTRAINT skillgroup_uri IF NOT EXISTS FOR (sg:SkillGroup) REQUIRE sg.conceptUri IS UNIQUE",
@@ -53,7 +60,7 @@ class ESCOIngest:
                 "CREATE CONSTRAINT iscogroup_code IF NOT EXISTS FOR (g:ISCOGroup) REQUIRE g.code IS UNIQUE"
             ]
             for constraint in constraints:
-                session.run(constraint)
+                self.client.execute_query(constraint, session=session)
             logger.info("Created constraints")
 
     def process_csv_in_batches(self, file_path, process_func):
@@ -68,13 +75,15 @@ class ESCOIngest:
 
     def ingest_skill_groups(self):
         def process_batch(batch):
-            with self.driver.session() as session:
+            with self.client.driver.session() as session:
                 for _, row in batch.iterrows():
                     query = """
                     MERGE (sg:Skill:SkillGroup {conceptUri: $conceptUri})
                     SET sg += $properties
                     """
-                    session.run(query, conceptUri=row['conceptUri'], properties=row.to_dict())
+                    self.client.execute_query(query, 
+                        parameters={'conceptUri': row['conceptUri'], 'properties': row.to_dict()},
+                        session=session)
 
         file_path = os.path.join(self.esco_dir, 'skillGroups_en.csv')
         self.process_csv_in_batches(file_path, process_batch)
@@ -82,13 +91,15 @@ class ESCOIngest:
 
     def ingest_skills(self):
         def process_batch(batch):
-            with self.driver.session() as session:
+            with self.client.driver.session() as session:
                 for _, row in batch.iterrows():
                     query = """
                     MERGE (s:Skill {conceptUri: $conceptUri})
                     SET s += $properties
                     """
-                    session.run(query, conceptUri=row['conceptUri'], properties=row.to_dict())
+                    self.client.execute_query(query, 
+                        parameters={'conceptUri': row['conceptUri'], 'properties': row.to_dict()},
+                        session=session)
 
         file_path = os.path.join(self.esco_dir, 'skills_en.csv')
         self.process_csv_in_batches(file_path, process_batch)
@@ -96,13 +107,15 @@ class ESCOIngest:
 
     def ingest_occupations(self):
         def process_batch(batch):
-            with self.driver.session() as session:
+            with self.client.driver.session() as session:
                 for _, row in batch.iterrows():
                     query = """
                     MERGE (o:Occupation {conceptUri: $conceptUri})
                     SET o += $properties
                     """
-                    session.run(query, conceptUri=row['conceptUri'], properties=row.to_dict())
+                    self.client.execute_query(query, 
+                        parameters={'conceptUri': row['conceptUri'], 'properties': row.to_dict()},
+                        session=session)
 
         file_path = os.path.join(self.esco_dir, 'occupations_en.csv')
         self.process_csv_in_batches(file_path, process_batch)
@@ -110,7 +123,7 @@ class ESCOIngest:
 
     def ingest_isco_groups(self):
         def process_batch(batch):
-            with self.driver.session() as session:
+            with self.client.driver.session() as session:
                 # First, ensure we don't have duplicate codes
                 batch = batch.drop_duplicates(subset=['code'], keep='first')
                 
@@ -122,7 +135,9 @@ class ESCOIngest:
                     """
                     properties = row.to_dict()
                     code = properties.pop('code', None)  # Remove code from properties
-                    session.run(query, conceptUri=row['conceptUri'], properties=properties)
+                    self.client.execute_query(query, 
+                        parameters={'conceptUri': row['conceptUri'], 'properties': properties},
+                        session=session)
                     
                     # Then update the code if it exists
                     if code is not None:
@@ -130,7 +145,9 @@ class ESCOIngest:
                         MATCH (g:ISCOGroup {conceptUri: $conceptUri})
                         SET g.code = $code
                         """
-                        session.run(update_query, conceptUri=row['conceptUri'], code=code)
+                        self.client.execute_query(update_query, 
+                            parameters={'conceptUri': row['conceptUri'], 'code': code},
+                            session=session)
 
         file_path = os.path.join(self.esco_dir, 'ISCOGroups_en.csv')
         self.process_csv_in_batches(file_path, process_batch)
@@ -138,7 +155,7 @@ class ESCOIngest:
 
     def create_skill_hierarchy(self):
         def process_batch(batch):
-            with self.driver.session() as session:
+            with self.client.driver.session() as session:
                 # Convert batch to list of dictionaries
                 data = batch[['conceptUri', 'broaderUri']].to_dict('records')
                 
@@ -148,7 +165,7 @@ class ESCOIngest:
                 MATCH (parent:Skill {conceptUri: row.broaderUri})
                 MERGE (parent)-[:BROADER_THAN]->(child)
                 """
-                session.run(query, data=data)
+                self.client.execute_query(query, data=data, session=session)
 
         file_path = os.path.join(self.esco_dir, 'broaderRelationsSkillPillar_en.csv')
         self.process_csv_in_batches(file_path, process_batch)
@@ -156,7 +173,7 @@ class ESCOIngest:
 
     def create_isco_hierarchy(self):
         def process_batch(batch):
-            with self.driver.session() as session:
+            with self.client.driver.session() as session:
                 # Convert batch to list of dictionaries
                 data = batch[['conceptUri', 'broaderUri']].to_dict('records')
                 
@@ -166,26 +183,26 @@ class ESCOIngest:
                 MATCH (parent:ISCOGroup {conceptUri: row.broaderUri})
                 MERGE (parent)-[:BROADER_THAN]->(child)
                 """
-                session.run(query, data=data)
+                self.client.execute_query(query, data=data, session=session)
 
         file_path = os.path.join(self.esco_dir, 'broaderRelationsOccPillar_en.csv')
         self.process_csv_in_batches(file_path, process_batch)
         logger.info("Created ISCO hierarchy")
 
     def create_occupation_isco_mapping(self):
-        with self.driver.session() as session:
+        with self.client.driver.session() as session:
             query = """
             MATCH (o:Occupation)
             WITH o, o.iscoGroup as iscoCode
             MATCH (g:ISCOGroup {code: iscoCode})
             MERGE (o)-[:PART_OF_ISCOGROUP]->(g)
             """
-            session.run(query)
+            self.client.execute_query(query, session=session)
             logger.info("Created occupation-ISCO mapping")
 
     def create_occupation_skill_relations(self):
         def process_batch(batch):
-            with self.driver.session() as session:
+            with self.client.driver.session() as session:
                 # Prepare batch data for essential relations
                 essential_data = batch[batch['relationType'] == 'essential'][['skillUri', 'occupationUri']].to_dict('records')
                 # Prepare batch data for optional relations
@@ -199,7 +216,7 @@ class ESCOIngest:
                     MATCH (o:Occupation {conceptUri: row.occupationUri})
                     MERGE (s)-[:ESSENTIAL_FOR]->(o)
                     """
-                    session.run(query, data=essential_data)
+                    self.client.execute_query(query, data=essential_data, session=session)
                 
                 # Process optional relations in batch
                 if optional_data:
@@ -209,7 +226,7 @@ class ESCOIngest:
                     MATCH (o:Occupation {conceptUri: row.occupationUri})
                     MERGE (s)-[:OPTIONAL_FOR]->(o)
                     """
-                    session.run(query, data=optional_data)
+                    self.client.execute_query(query, data=optional_data, session=session)
 
         file_path = os.path.join(self.esco_dir, 'occupationSkillRelations_en.csv')
         self.process_csv_in_batches(file_path, process_batch)
@@ -217,7 +234,7 @@ class ESCOIngest:
 
     def create_skill_skill_relations(self):
         def process_batch(batch):
-            with self.driver.session() as session:
+            with self.client.driver.session() as session:
                 # Convert batch to list of dictionaries
                 data = batch[['originalSkillUri', 'relatedSkillUri', 'relationType']].to_dict('records')
                 
@@ -227,7 +244,7 @@ class ESCOIngest:
                 MATCH (b:Skill {conceptUri: row.relatedSkillUri})
                 MERGE (a)-[:RELATED_SKILL {type: row.relationType}]->(b)
                 """
-                session.run(query, data=data)
+                self.client.execute_query(query, data=data, session=session)
 
         file_path = os.path.join(self.esco_dir, 'skillSkillRelations_en.csv')
         self.process_csv_in_batches(file_path, process_batch)
@@ -236,7 +253,7 @@ class ESCOIngest:
     def create_vector_indexes(self):
         """Create vector indexes for Neo4j vector search if supported"""
         try:
-            with self.driver.session() as session:
+            with self.client.driver.session() as session:
                 # Check Neo4j version
                 version_result = session.run("CALL dbms.components() YIELD versions").single()
                 version = version_result['versions'][0]
@@ -274,7 +291,7 @@ class ESCOIngest:
         """Generate embeddings for all skills and occupations"""
         # Process skills
         logger.info("Generating embeddings for skills")
-        with self.driver.session() as session:
+        with self.client.driver.session() as session:
             # Get skills in batches
             query = "MATCH (s:Skill) RETURN s.conceptUri as uri, s.preferredLabel as label, s.description as description, s.altLabels as altLabels"
             result = session.run(query)
@@ -296,7 +313,7 @@ class ESCOIngest:
         
         # Process occupations (similar logic)
         logger.info("Generating embeddings for occupations")
-        with self.driver.session() as session:
+        with self.client.driver.session() as session:
             query = "MATCH (o:Occupation) RETURN o.conceptUri as uri, o.preferredLabel as label, o.description as description, o.altLabels as altLabels"
             result = session.run(query)
             
@@ -367,26 +384,29 @@ class ESCOIngest:
 def main():
     parser = argparse.ArgumentParser(description='ESCO Data Ingestion Tool')
     
-    # Neo4j connection parameters
-    parser.add_argument('--uri', type=str, default='bolt://localhost:7687', help='Neo4j URI')
-    parser.add_argument('--user', type=str, default='neo4j', help='Neo4j username')
-    parser.add_argument('--password', type=str, required=True, help='Neo4j password')
-    parser.add_argument('--esco-dir', type=str, default='ESCO', help='Directory containing ESCO CSV files')
+    # Configuration parameters
+    parser.add_argument('--config', type=str, help='Path to YAML config file')
+    parser.add_argument('--profile', type=str, default='default',
+                      choices=['default', 'aura'],
+                      help='Configuration profile to use')
     
     # Execution mode
-    parser.add_argument('--embeddings-only', action='store_true', 
+    parser.add_argument('--embeddings-only', action='store_true',
                       help='Run only the embedding generation and indexing (assumes ESCO graph exists)')
     
     args = parser.parse_args()
     
     # Create ingestor instance
-    ingestor = ESCOIngest(args.uri, args.user, args.password, args.esco_dir)
+    ingestor = ESCOIngest(config_path=args.config, profile=args.profile)
     
-    # Run appropriate process
-    if args.embeddings_only:
-        ingestor.run_embeddings_only()
-    else:
-        ingestor.run_ingest()
+    try:
+        # Run appropriate process
+        if args.embeddings_only:
+            ingestor.run_embeddings_only()
+        else:
+            ingestor.run_ingest()
+    finally:
+        ingestor.close()
 
 if __name__ == "__main__":
     main() 

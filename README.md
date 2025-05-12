@@ -9,7 +9,7 @@ This tool is provided "AS IS", without warranty of any kind, express or implied,
 ## Prerequisites
 
 - Python 3.8 or higher
-- Neo4j Database (version 5.x)
+- Neo4j Database (version 5.x) or Neo4j AuraDB
 - ESCO CSV files (v1.2.0 or compatible)
 
 ## Environment Setup
@@ -30,6 +30,32 @@ python - <<'PY'
 import tiktoken, sentencepiece, google.protobuf, transformers
 print("All critical libraries imported successfully.")
 PY
+```
+
+### Configuration
+
+The tool uses a YAML configuration file for Neo4j connection settings. To set up:
+
+1. Copy the sample configuration:
+```bash
+cp config/neo4j_config.sample.yaml config/neo4j_config.yaml
+```
+
+2. Edit `config/neo4j_config.yaml` with your Neo4j connection details:
+   - For local Neo4j: Use the `default` profile
+   - For AuraDB: Use the `aura` profile
+
+3. Alternatively, you can set environment variables:
+```bash
+# For local Neo4j
+export NEO4J_URI="bolt://localhost:7687"
+export NEO4J_USER="neo4j"
+export NEO4J_PASSWORD="your-password"
+
+# For AuraDB
+export NEO4J_URI="neo4j+s://your-instance-id.databases.neo4j.io"
+export NEO4J_USER="neo4j"
+export NEO4J_PASSWORD="your-password"
 ```
 
 ### Apple Silicon (M1/M2/M3) Notes
@@ -75,18 +101,32 @@ cd ESCO-Ingest
 
 2. Follow the Environment Setup instructions above to create and activate the conda environment.
 
-## Configuration
-
-Before running the ingestion tool, update the configuration variables in `esco_ingest.py`:
-
-```python
-NEO4J_URI = "bolt://localhost:7687"  # Update with your Neo4j URI
-NEO4J_USER = "neo4j"                 # Update with your username
-NEO4J_PASSWORD = "your-password"     # Update with your password
-ESCO_DIR = "ESCO"                    # Directory containing ESCO CSV files
-```
+3. Configure your Neo4j connection as described in the Configuration section.
 
 ## Directory Structure
+
+```
+ESCO-Ingest/
+├── config/
+│   ├── neo4j_config.sample.yaml  # Sample configuration (safe to commit)
+│   └── neo4j_config.yaml         # Your configuration (gitignored)
+├── src/
+│   ├── esco_ingest.py           # Main ingestion script
+│   ├── neo4j_client.py          # Neo4j client implementation
+│   └── embedding_utils.py       # Embedding generation utilities
+├── ESCO/                        # ESCO data directory (gitignored)
+│   ├── skillGroups_en.csv
+│   ├── skills_en.csv
+│   ├── occupations_en.csv
+│   ├── ISCOGroups_en.csv
+│   ├── broaderRelationsSkillPillar_en.csv
+│   ├── broaderRelationsOccPillar_en.csv
+│   ├── occupationSkillRelations_en.csv
+│   └── skillSkillRelations_en.csv
+├── environment.yml              # Conda environment definition
+├── requirements.txt            # Pip requirements
+└── README.md                   # This file
+```
 
 Place your ESCO CSV files in the `ESCO` directory. The tool expects the following files:
 - `skillGroups_en.csv`
@@ -106,21 +146,23 @@ The tool can be run in two modes:
 
 1. Full ingestion (default):
 ```bash
-python src/esco_ingest.py --password "your_password"
+# For local Neo4j
+python src/esco_ingest.py --profile default
+
+# For AuraDB
+python src/esco_ingest.py --profile aura
 ```
 
 2. Embeddings only (when ESCO graph exists):
 ```bash
-python src/esco_ingest.py --password "your_password" --embeddings-only
+python src/esco_ingest.py --profile default --embeddings-only
 ```
 
 Additional command-line options:
 ```bash
 python src/esco_ingest.py \
-    --uri "bolt://your-neo4j-server:7687" \
-    --user "neo4j" \
-    --password "your_password" \
-    --esco-dir "path/to/esco/files" \
+    --config "path/to/custom/config.yaml" \
+    --profile "aura" \
     --embeddings-only
 ```
 

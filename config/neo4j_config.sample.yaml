@@ -1,0 +1,31 @@
+# Neo4j Configuration Sample
+# Copy this file to neo4j_config.yaml and update with your settings
+# For local Neo4j instance, use: bolt://localhost:7687
+# For AuraDB, use: neo4j+s://your-instance-id.databases.neo4j.io
+
+# Default configuration (local development)
+default:
+  uri: "bolt://localhost:7687"
+  user: "neo4j"
+  password: "your-password-here"  # Set this in your environment or override
+  max_retries: 3
+  retry_delay: 5
+  max_connection_lifetime: 3600  # 1 hour
+  max_connection_pool_size: 50
+  connection_timeout: 30
+
+# AuraDB specific configuration (production)
+aura:
+  uri: "neo4j+s://your-instance-id.databases.neo4j.io"
+  user: "neo4j"
+  password: "your-password-here"  # Set this in your environment or override
+  max_retries: 5  # More retries for cloud
+  retry_delay: 10  # Longer delay for cloud
+  max_connection_lifetime: 1800  # 30 minutes for cloud
+  max_connection_pool_size: 100  # Larger pool for cloud
+  connection_timeout: 60  # Longer timeout for cloud
+
+# ESCO specific settings
+esco:
+  batch_size: 50000
+  data_dir: "ESCO" 

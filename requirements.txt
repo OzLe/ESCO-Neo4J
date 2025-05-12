@@ -1,14 +1,15 @@
 # Core dependencies
-neo4j>=4.0.0
+neo4j>=5.0.0
 pandas>=1.3.0
-tqdm>=4.65.0
+tqdm>=4.66.0
+pyyaml>=6.0.0
 numpy==1.24.3
 
 # Embedding and translation dependencies
 sentence-transformers>=2.2.0
 transformers>=4.49.1
-torch>=2.0.0
 accelerate>=0.20.0
+torch>=2.0.0
 
 # Tokenizer dependencies
 sentencepiece>=0.1.99
@@ -19,3 +20,6 @@ protobuf==3.20.3
 # Optional: GPU support for Apple Silicon
 # Note: Install these only if using M1/M2/M3 Mac
 # torch-mps  # Available through conda: conda install pytorch -c pytorch
+
+# Additional dependencies
+pillow>=10.3.0

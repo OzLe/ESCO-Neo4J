@@ -32,8 +32,16 @@ class ESCOSemanticSearch:
             count = result.single()["count"]
             return count > 0
         
-    def search(self, query_text, node_type="Skill", limit=10, search_only=False):
-        """Search for semantically similar nodes"""
+    def search(self, query_text, node_type="Skill", limit=10, search_only=False, similarity_threshold=0.5):
+        """Search for semantically similar nodes
+        
+        Args:
+            query_text (str): The text to search for
+            node_type (str): Type of nodes to search ("Skill", "Occupation", or "Both")
+            limit (int): Maximum number of results to return
+            search_only (bool): If True, only perform search without re-indexing
+            similarity_threshold (float): Minimum similarity score (0.0 to 1.0)
+        """
         # Check if data is indexed if in search-only mode
         if search_only and not self.is_data_indexed(node_type):
             raise ValueError("Data is not indexed. Please run the full pipeline first or disable search-only mode.")
@@ -51,23 +59,23 @@ class ESCOSemanticSearch:
                     MATCH (s:Skill)
                     WHERE s.embedding IS NOT NULL
                     WITH s, vector.similarity.cosine(s.embedding, $query_embedding) AS score
-                    WHERE score > 0.5
+                    WHERE score > $threshold
                     RETURN s.conceptUri AS uri, s.preferredLabel AS label, 
                            s.description AS description, score
                     ORDER BY score DESC
                     LIMIT $limit
-                """, query_embedding=query_embedding, limit=limit)
+                """, query_embedding=query_embedding, limit=limit, threshold=similarity_threshold)
             elif node_type == "Occupation":
                 result = session.run("""
                     MATCH (o:Occupation)
                     WHERE o.embedding IS NOT NULL
                     WITH o, vector.similarity.cosine(o.embedding, $query_embedding) AS score
-                    WHERE score > 0.5
+                    WHERE score > $threshold
                     RETURN o.conceptUri AS uri, o.preferredLabel AS label, 
                            o.description AS description, score
                     ORDER BY score DESC
                     LIMIT $limit
-                """, query_embedding=query_embedding, limit=limit)
+                """, query_embedding=query_embedding, limit=limit, threshold=similarity_threshold)
             else:
                 # Search both skills and occupations
                 result = session.run("""
@@ -76,12 +84,12 @@ class ESCOSemanticSearch:
                     WITH n, 
                          labels(n)[0] AS type,
                          vector.similarity.cosine(n.embedding, $query_embedding) AS score
-                    WHERE score > 0.5
+                    WHERE score > $threshold
                     RETURN n.conceptUri AS uri, n.preferredLabel AS label, 
                            n.description AS description, type, score
                     ORDER BY score DESC
                     LIMIT $limit
-                """, query_embedding=query_embedding, limit=limit)
+                """, query_embedding=query_embedding, limit=limit, threshold=similarity_threshold)
             
             # Process results
             search_results = []

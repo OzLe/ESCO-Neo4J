@@ -12,6 +12,8 @@ import time
 from functools import lru_cache
 import platform
 import importlib
+import yaml
+import os
 
 # Configure logging
 logging.basicConfig(
@@ -52,11 +54,28 @@ def get_device() -> str:
     return "cpu"
 
 class ESCOTranslator:
-    def __init__(self, uri: str, user: str, password: str, device: str = None):
+    def __init__(self, config_path=None, profile='default', device: str = None):
         # Verify dependencies first
         verify_dependencies()
         
-        self.driver = GraphDatabase.driver(uri, auth=(user, password))
+        # Load configuration
+        if config_path is None:
+            config_path = os.path.join('config', 'neo4j_config.yaml')
+        
+        with open(config_path, 'r') as f:
+            self.config = yaml.safe_load(f)
+        
+        # Get Neo4j configuration for the specified profile
+        neo4j_config = self.config[profile]
+        
+        # Initialize Neo4j driver with configuration
+        self.driver = GraphDatabase.driver(
+            neo4j_config['uri'],
+            auth=(neo4j_config['user'], neo4j_config['password']),
+            max_connection_lifetime=neo4j_config['max_connection_lifetime'],
+            max_connection_pool_size=neo4j_config['max_connection_pool_size'],
+            connection_timeout=neo4j_config['connection_timeout']
+        )
         
         # Determine device
         if device is None:
@@ -223,9 +242,10 @@ class ESCOTranslator:
 
 def main():
     parser = argparse.ArgumentParser(description="Translate ESCO node properties to Hebrew")
-    parser.add_argument("--uri", default="bolt://localhost:7687", help="Neo4j URI")
-    parser.add_argument("--user", default="neo4j", help="Neo4j username")
-    parser.add_argument("--password", required=True, help="Neo4j password")
+    parser.add_argument("--config", type=str, help="Path to YAML config file")
+    parser.add_argument("--profile", type=str, default='default',
+                      choices=['default', 'aura'],
+                      help="Configuration profile to use")
     parser.add_argument("--property", required=True, help="Property to translate")
     parser.add_argument("--type", required=True, choices=["Skill", "Occupation", "SkillGroup", "ISCOGroup"],
                       help="Node type to translate")
@@ -235,7 +255,7 @@ def main():
 
     args = parser.parse_args()
 
-    translator = ESCOTranslator(args.uri, args.user, args.password, args.device)
+    translator = ESCOTranslator(config_path=args.config, profile=args.profile, device=args.device)
     try:
         translator.translate_nodes(args.type, args.property, args.batch_size)
     finally:

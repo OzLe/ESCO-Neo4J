@@ -19,6 +19,8 @@ def main():
     parser.add_argument('--related', action='store_true', help='Get related graph for top result')
     parser.add_argument('--search-only', action='store_true', 
                       help='Run only the search part without re-indexing (assumes data is already indexed)')
+    parser.add_argument('--threshold', type=float, default=0.5,
+                      help='Minimum similarity score threshold (0.0 to 1.0, default: 0.5)')
     
     # Neo4j connection parameters
     parser.add_argument('--uri', type=str, default='bolt://localhost:7687', help='Neo4j URI')
@@ -41,7 +43,13 @@ def main():
         # Perform search
         logger.info(f"Searching for '{args.query}' in {args.type} nodes...")
         try:
-            results = search_service.search(args.query, args.type, args.limit, args.search_only)
+            results = search_service.search(
+                args.query, 
+                args.type, 
+                args.limit, 
+                args.search_only,
+                args.threshold
+            )
         except ValueError as e:
             logger.error(str(e))
             return

@@ -237,23 +237,32 @@ The tool includes functionality to translate English text to Hebrew using the T5
 To translate node properties to Hebrew:
 
 ```bash
-python src/esco_translate.py --password "your_password" --property "preferredLabel" --type Skill
+# For local Neo4j
+python src/esco_translate.py --profile default --property "preferredLabel" --type Skill
+
+# For AuraDB
+python src/esco_translate.py --profile aura --property "preferredLabel" --type Skill
 ```
 
 Additional translation options:
+- `--config`: Path to custom YAML configuration file (default: config/neo4j_config.yaml)
+- `--profile`: Configuration profile to use ('default' or 'aura')
 - `--property`: The property to translate (e.g., "preferredLabel", "description")
 - `--type`: Node type to translate (Skill, Occupation, SkillGroup, or ISCOGroup)
 - `--batch-size`: Number of nodes to process in each batch (default: 100)
 - `--suffix`: Suffix for the translated property (default: "_he")
+- `--device`: Device to use for translation (cpu, cuda, or mps)
 
 Example with all options:
 ```bash
 python src/esco_translate.py \
-    --password "your_password" \
+    --config "config/neo4j_config.yaml" \
+    --profile "aura" \
     --property "preferredLabel" \
     --type Skill \
     --batch-size 50 \
-    --suffix "_he"
+    --suffix "_he" \
+    --device "cuda"
 ```
 
 The translation process:

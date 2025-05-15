@@ -25,7 +25,16 @@ class ESCOIngest:
         self.client = Neo4jClient(config_path, profile)
         self.config = self.client.config
         self.esco_dir = self.config['esco']['data_dir']
-        self.batch_size = self.config['esco']['batch_size']
+        
+        # Use different batch sizes based on profile
+        if profile == 'aura':
+            # Smaller batch size for AuraDB to avoid timeouts
+            self.batch_size = 1000
+        else:
+            # Larger batch size for local connections
+            self.batch_size = self.config['esco']['batch_size']
+        
+        logger.info(f"Using batch size of {self.batch_size} for {profile} profile")
 
     def close(self):
         """Close the database connection"""

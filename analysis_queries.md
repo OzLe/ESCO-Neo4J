@@ -148,6 +148,55 @@ MATCH (o:Occupation {preferredLabel: 'Occupation Name'})<-[:ESSENTIAL_FOR]-(s:Sk
 RETURN o.preferredLabel as Occupation, collect(s.preferredLabel) as RequiredSkills;
 ```
 
+### Occupations Related Through Skills (2 Hops)
+*Finds occupations that are related through skills with a maximum of 2 hops. This helps identify occupations that share similar skill requirements or are connected through intermediate skills.*
+
+```cypher
+// Find occupations related through direct skill connections (1 hop)
+MATCH (o1:Occupation {preferredLabel: 'Occupation Name'})<-[:ESSENTIAL_FOR]-(s:Skill)-[:ESSENTIAL_FOR]->(o2:Occupation)
+WHERE o1 <> o2
+RETURN o1.preferredLabel as SourceOccupation, 
+       o2.preferredLabel as RelatedOccupation,
+       collect(DISTINCT s.preferredLabel) as ConnectingSkills,
+       'Direct' as ConnectionType;
+
+// Find occupations related through intermediate skills (2 hops)
+MATCH (o1:Occupation {preferredLabel: 'Occupation Name'})<-[:ESSENTIAL_FOR]-(s1:Skill)-[:RELATED_SKILL]-(s2:Skill)-[:ESSENTIAL_FOR]->(o2:Occupation)
+WHERE o1 <> o2
+RETURN o1.preferredLabel as SourceOccupation,
+       o2.preferredLabel as RelatedOccupation,
+       collect(DISTINCT s1.preferredLabel) as SourceSkills,
+       collect(DISTINCT s2.preferredLabel) as TargetSkills,
+       'Indirect' as ConnectionType;
+
+// Combined query showing both direct and indirect connections
+MATCH (o1:Occupation {preferredLabel: 'Occupation Name'})
+OPTIONAL MATCH (o1)<-[:ESSENTIAL_FOR]-(s1:Skill)-[:ESSENTIAL_FOR]->(o2:Occupation)
+WHERE o1 <> o2
+WITH o1, o2, collect(DISTINCT s1.preferredLabel) as directSkills
+OPTIONAL MATCH (o1)<-[:ESSENTIAL_FOR]-(s2:Skill)-[:RELATED_SKILL]-(s3:Skill)-[:ESSENTIAL_FOR]->(o3:Occupation)
+WHERE o1 <> o3
+WITH o1, o2, directSkills, o3, 
+     collect(DISTINCT s2.preferredLabel) as sourceSkills,
+     collect(DISTINCT s3.preferredLabel) as targetSkills
+WITH o1, 
+     collect(DISTINCT {
+         occupation: o2.preferredLabel,
+         type: 'Direct',
+         connectingSkills: directSkills
+     }) as directConnections,
+     collect(DISTINCT {
+         occupation: o3.preferredLabel,
+         type: 'Indirect',
+         sourceSkills: sourceSkills,
+         targetSkills: targetSkills
+     }) as indirectConnections
+RETURN 
+    o1.preferredLabel as SourceOccupation,
+    directConnections as DirectConnections,
+    indirectConnections as IndirectConnections;
+```
+
 ## Advanced Analysis
 
 ### Graph Projection for Advanced Analysis
@@ -395,7 +444,36 @@ OPTIONAL MATCH (o2)-[:PART_OF_ISCOGROUP]->(i2:ISCOGroup)
 OPTIONAL MATCH (s)-[:RELATED_SKILL]-(s2:Skill)
 OPTIONAL MATCH (s2)-[:ESSENTIAL_FOR]->(o3:Occupation)
 OPTIONAL MATCH (s2)-[:OPTIONAL_FOR]->(o4:Occupation)
-RETURN s, o1, o2, i1, i2, s2, o3, o4, r1, r2;
+RETURN 
+    s.preferredLabel as Skill,
+    collect(DISTINCT {
+        occupation: o1.preferredLabel,
+        type: 'Direct Essential'
+    }) as DirectEssentialOccupations,
+    collect(DISTINCT {
+        occupation: o2.preferredLabel,
+        type: 'Direct Optional'
+    }) as DirectOptionalOccupations,
+    collect(DISTINCT {
+        iscoGroup: i1.preferredLabel,
+        type: 'Via Essential'
+    }) as ISCOGroupsViaEssential,
+    collect(DISTINCT {
+        iscoGroup: i2.preferredLabel,
+        type: 'Via Optional'
+    }) as ISCOGroupsViaOptional,
+    collect(DISTINCT {
+        skill: s2.preferredLabel,
+        type: 'Related'
+    }) as RelatedSkills,
+    collect(DISTINCT {
+        occupation: o3.preferredLabel,
+        type: 'Via Related Skills Essential'
+    }) as OccupationsViaRelatedEssential,
+    collect(DISTINCT {
+        occupation: o4.preferredLabel,
+        type: 'Via Related Skills Optional'
+    }) as OccupationsViaRelatedOptional;
 ```
 
 #### Custom Graph Visualization with Properties

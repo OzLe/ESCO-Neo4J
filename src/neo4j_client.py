@@ -33,15 +33,19 @@ class Neo4jClient:
             # Get the requested profile
             profile_config = config.get(profile, config['default'])
             
+            # Create a new config that includes both profile and root-level settings
+            merged_config = {**config}  # Start with all root-level config
+            merged_config.update(profile_config)  # Override with profile-specific settings
+            
             # Override with environment variables if they exist
             if 'NEO4J_URI' in os.environ:
-                profile_config['uri'] = os.environ['NEO4J_URI']
+                merged_config['uri'] = os.environ['NEO4J_URI']
             if 'NEO4J_USER' in os.environ:
-                profile_config['user'] = os.environ['NEO4J_USER']
+                merged_config['user'] = os.environ['NEO4J_USER']
             if 'NEO4J_PASSWORD' in os.environ:
-                profile_config['password'] = os.environ['NEO4J_PASSWORD']
+                merged_config['password'] = os.environ['NEO4J_PASSWORD']
             
-            return profile_config
+            return merged_config
         except Exception as e:
             logger.error(f"Failed to load configuration: {str(e)}")
             raise
@@ -83,8 +87,19 @@ class Neo4jClient:
                     logger.error(f"Failed to connect after {self.config['max_retries']} attempts: {str(e)}")
                     raise
 
-    def execute_query(self, query, parameters=None, session=None):
-        """Execute a query with retry logic"""
+    def execute_query(self, query, parameters=None, session=None, data=None):
+        """Execute a query with retry logic
+        
+        Args:
+            query (str): The Cypher query to execute
+            parameters (dict, optional): Query parameters
+            session (Session, optional): Existing Neo4j session to use
+            data (list, optional): List of dictionaries for UNWIND operations
+        """
+        # If data is provided, use it as parameters
+        if data is not None:
+            parameters = {'data': data}
+        
         for attempt in range(self.config['max_retries']):
             try:
                 if session:

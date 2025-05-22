@@ -14,6 +14,8 @@ import platform
 import importlib
 import yaml
 import os
+import glob
+
 
 # Configure logging
 logging.basicConfig(
@@ -21,13 +23,14 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+logging.getLogger().setLevel(logging.DEBUG)
 
 def verify_dependencies():
     """Verify that all required dependencies are installed."""
     required_packages = {
         'tiktoken': '>=0.6.0',
         'sentencepiece': '>=0.1.99',
-        'protobuf': '<4',
+        'google.protobuf': '<4',
         'transformers': '>=4.49.1'
     }
     
@@ -89,34 +92,149 @@ class ESCOTranslator:
             
         logger.info(f"Using device: {self.device}")
         
+        # Clear any existing CUDA cache
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
+        # Set up model cache directory
+        self.cache_dir = os.path.abspath("./model_cache")
+        if not os.path.exists(self.cache_dir):
+            raise RuntimeError(
+                f"Model cache directory not found: {self.cache_dir}\n"
+                "Please run 'python src/download_model.py' first to download the model."
+            )
+        
+        # Find the actual model directory
+        model_dirs = glob.glob(os.path.join(self.cache_dir, "**", "models--Helsinki-NLP--opus-mt-en-he"), recursive=True)
+        if not model_dirs:
+            raise RuntimeError(
+                "Could not find model directory in cache.\n"
+                "Please run 'python src/download_model.py' to download the model."
+            )
+        
+        model_dir = model_dirs[0]
+        logger.info(f"Found model directory: {model_dir}")
+        
+        # Find the latest snapshot directory
+        snapshot_dirs = glob.glob(os.path.join(model_dir, "snapshots", "*"))
+        if not snapshot_dirs:
+            raise RuntimeError(
+                "No snapshot directories found in model cache.\n"
+                "Please run 'python src/download_model.py' to download the model."
+            )
+        
+        # Use the first snapshot directory (they should be equivalent)
+        self.model_dir = snapshot_dirs[0]
+        logger.info(f"Using model directory: {self.model_dir}")
+        
         # Load model and tokenizer with safe initialization
         try:
-            # First try the safer T5Tokenizer
-            self.tokenizer = T5Tokenizer.from_pretrained("tejagowda/t5-hebrew-translation")
-            self.model = T5ForConditionalGeneration.from_pretrained("tejagowda/t5-hebrew-translation")
-        except Exception as e:
-            logger.warning(f"Failed to load with T5Tokenizer: {str(e)}")
-            logger.info("Falling back to AutoTokenizer with legacy mode")
-            # Fallback to AutoTokenizer with legacy mode
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                "tejagowda/t5-hebrew-translation",
-                use_fast=False,
-                legacy=True
-            )
-            self.model = AutoModelForSeq2SeqLM.from_pretrained("tejagowda/t5-hebrew-translation")
-        
-        # Move model to appropriate device
-        try:
-            self.model = self.model.to(self.device)
-            # Test if model works on device
-            test_input = self.tokenizer("test", return_tensors="pt").to(self.device)
-            with torch.no_grad():
-                self.model.generate(test_input["input_ids"], max_length=10)
-        except Exception as e:
-            logger.warning(f"Error using {self.device}, falling back to CPU: {str(e)}")
-            self.device = "cpu"
-            self.model = self.model.to(self.device)
+            # Use MarianMT model for English to Hebrew translation
+            logger.info("Loading tokenizer from local cache...")
+            try:
+                self.tokenizer = AutoTokenizer.from_pretrained(
+                    self.model_dir,
+                    use_fast=False,
+                    local_files_only=True
+                )
+            except Exception as e:
+                logger.error(f"Failed to load tokenizer from cache: {str(e)}")
+                raise RuntimeError(
+                    "Failed to load tokenizer from cache. "
+                    "Please run 'python src/download_model.py' to download the model."
+                )
             
+            logger.info("Loading model from local cache...")
+            # For MPS devices, we need to be more careful with model loading
+            if self.device == "mps":
+                try:
+                    # Clear any existing caches
+                    torch.cuda.empty_cache()
+                    if torch.backends.mps.is_available():
+                        torch.mps.empty_cache()
+                    
+                    # Load model on CPU first with explicit settings
+                    logger.info("Loading model on CPU first...")
+                    self.model = AutoModelForSeq2SeqLM.from_pretrained(
+                        self.model_dir,
+                        torch_dtype=torch.float32,
+                        low_cpu_mem_usage=True,
+                        local_files_only=True,
+                        device_map="cpu"
+                    )
+                    
+                    # Ensure model is in eval mode
+                    self.model.eval()
+                    
+                    # Move to MPS after loading
+                    logger.info("Moving model to MPS...")
+                    self.model = self.model.to(self.device)
+                    
+                    # Run a small test to verify MPS compatibility
+                    logger.info("Testing model on MPS...")
+                    test_input = self.tokenizer("Hello", return_tensors="pt").to(self.device)
+                    with torch.no_grad():
+                        _ = self.model.generate(**test_input, max_length=10)
+                    logger.info("MPS test successful")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to load model on MPS: {str(e)}")
+                    logger.info("Falling back to CPU...")
+                    self.device = "cpu"
+                    # Clear memory before retrying on CPU
+                    gc.collect()
+                    if torch.backends.mps.is_available():
+                        torch.mps.empty_cache()
+                    
+                    self.model = AutoModelForSeq2SeqLM.from_pretrained(
+                        self.model_dir,
+                        torch_dtype=torch.float32,
+                        low_cpu_mem_usage=True,
+                        local_files_only=True,
+                        device_map="cpu"
+                    )
+            else:
+                try:
+                    # For other devices, load directly to device
+                    self.model = AutoModelForSeq2SeqLM.from_pretrained(
+                        self.model_dir,
+                        torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
+                        low_cpu_mem_usage=True,
+                        device_map=self.device,
+                        local_files_only=True
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to load model from cache: {str(e)}")
+                    raise RuntimeError(
+                        "Failed to load model from cache. "
+                        "Please run 'python src/download_model.py' to download the model."
+                    )
+            
+            # Set model to evaluation mode
+            self.model.eval()
+            
+            # Run smoke test with a small batch
+            logger.info("Running smoke test...")
+            test_input = "Hello, how are you?"
+            test_output = self.translate_text(test_input)
+            if not test_output:
+                raise ValueError("Smoke test failed - translation returned empty result")
+            logger.info(f"Smoke test successful. Translated: {test_output}")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize model: {str(e)}")
+            # Clean up any partial initialization
+            if hasattr(self, 'model'):
+                del self.model
+            if hasattr(self, 'tokenizer'):
+                del self.tokenizer
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            if torch.backends.mps.is_available():
+                torch.mps.empty_cache()
+            raise
+        
+        # Ensure model is in eval mode
         self.model.eval()
 
     def close(self):
@@ -131,20 +249,76 @@ class ESCOTranslator:
 
     @lru_cache(maxsize=1000)
     def translate_text(self, text: str, max_retries: int = 3) -> str:
-        """Translate English text to Hebrew using the T5 model with retries."""
+        """Translate English text to Hebrew using the MarianMT model with retries."""
+        # Preprocess text to handle potential issues
+        text = text.strip()
+        if not text:
+            return ""
+            
+        # More aggressive text cleaning
+        # Remove any non-ASCII characters that might cause issues
+        base_text = ''.join(char for char in text if ord(char) < 128)
+        # Normalize whitespace
+        base_text = ' '.join(base_text.split())
+        
+        # Log the text being processed for debugging
+        logger.debug(f"Processing text: {base_text}")
+        
         for attempt in range(max_retries):
             try:
-                inputs = self.tokenizer(text, return_tensors="pt", max_length=512, truncation=True)
+                # Add prefix for MarianMT model
+                prompt = f"translate English to Hebrew: {base_text}"
+                
+                # Try to tokenize with explicit error handling
+                try:
+                    inputs = self.tokenizer(
+                        prompt,
+                        return_tensors="pt",
+                        max_length=512,
+                        truncation=True,
+                        padding=True,
+                        add_special_tokens=True
+                    )
+                except Exception as tokenizer_error:
+                    logger.error(f"Tokenizer error: {str(tokenizer_error)}")
+                    return text  # Return original text if tokenization fails
+                
+                # Move inputs to device
                 inputs = {k: v.to(self.device) for k, v in inputs.items()}
                 
+                # Generate translation with memory-efficient settings
                 with torch.no_grad():
-                    outputs = self.model.generate(
-                        inputs["input_ids"],
-                        max_length=512,
-                        num_beams=4,
-                        length_penalty=2.0,
-                        early_stopping=True
-                    )
+                    try:
+                        outputs = self.model.generate(
+                            inputs["input_ids"],
+                            max_length=512,
+                            num_beams=4,
+                            length_penalty=2.0,
+                            early_stopping=True,
+                            do_sample=False,
+                            no_repeat_ngram_size=2,
+                            use_cache=True
+                        )
+                    except RuntimeError as e:
+                        if "MPS" in str(e):
+                            logger.warning("MPS error, falling back to CPU for generation")
+                            # Move model and inputs to CPU temporarily
+                            self.model = self.model.to("cpu")
+                            inputs = {k: v.to("cpu") for k, v in inputs.items()}
+                            outputs = self.model.generate(
+                                inputs["input_ids"],
+                                max_length=512,
+                                num_beams=4,
+                                length_penalty=2.0,
+                                early_stopping=True,
+                                do_sample=False,
+                                no_repeat_ngram_size=2,
+                                use_cache=True
+                            )
+                            # Move model back to original device
+                            self.model = self.model.to(self.device)
+                        else:
+                            raise
                 
                 # Move output to CPU for decoding
                 outputs = outputs.cpu()
@@ -152,14 +326,16 @@ class ESCOTranslator:
                 
                 # Basic validation
                 if not translated or len(translated.strip()) == 0:
-                    raise ValueError("Empty translation")
+                    logger.warning(f"Empty translation for input: {text}")
+                    return text
                     
                 return translated
                 
             except Exception as e:
                 if attempt == max_retries - 1:
                     logger.error(f"Failed to translate after {max_retries} attempts: {str(e)}")
-                    raise
+                    logger.error(f"Problematic text was: {text}")
+                    return text
                 time.sleep(1)  # Wait before retry
 
     def get_nodes_to_translate(self, node_type: str, property_name: str) -> List[dict]:

@@ -1,6 +1,6 @@
-# ESCO Data Ingestion Tool
+# ESCO Data Management and Search Tool
 
-This tool is designed for visualizing and testing the ESCO (European Skills, Competences, Qualifications and Occupations) taxonomy in a Neo4j graph database. It processes various CSV files containing skills, occupations, and their relationships, creating a comprehensive knowledge graph for exploration and analysis purposes.
+This tool is designed for managing, searching, and translating the ESCO (European Skills, Competences, Qualifications and Occupations) taxonomy in a Neo4j graph database. It provides a unified command-line interface for data ingestion, semantic search, and translation capabilities.
 
 ## Disclaimer
 
@@ -111,9 +111,13 @@ ESCO-Ingest/
 │   ├── neo4j_config.sample.yaml  # Sample configuration (safe to commit)
 │   └── neo4j_config.yaml         # Your configuration (gitignored)
 ├── src/
-│   ├── esco_ingest.py           # Main ingestion script
+│   ├── esco_cli.py              # Unified CLI interface
+│   ├── esco_ingest.py           # Data ingestion implementation
 │   ├── neo4j_client.py          # Neo4j client implementation
-│   └── embedding_utils.py       # Embedding generation utilities
+│   ├── embedding_utils.py       # Embedding generation utilities
+│   ├── semantic_search.py       # Semantic search implementation
+│   ├── esco_translate.py        # Translation implementation
+│   └── download_model.py        # Model download utility
 ├── ESCO/                        # ESCO data directory (gitignored)
 │   ├── skillGroups_en.csv
 │   ├── skills_en.csv
@@ -140,141 +144,157 @@ Place your ESCO CSV files in the `ESCO` directory. The tool expects the followin
 
 ## Usage
 
+The tool provides a unified command-line interface (`esco_cli.py`) with several subcommands:
+
+### General Help
+
+```bash
+# Show general help
+python src/esco_cli.py --help
+
+# Show help for a specific command
+python src/esco_cli.py search --help
+```
+
+### Download Translation Model
+
+```bash
+python src/esco_cli.py download-model
+```
+
 ### Data Ingestion
 
-The tool can be run in two modes:
-
-1. Full ingestion (default):
 ```bash
-# For local Neo4j
-python src/esco_ingest.py --profile default
+# Full ingestion
+python src/esco_cli.py ingest --config config/neo4j_config.yaml
 
-# For AuraDB
-python src/esco_ingest.py --profile aura
+# Embeddings only
+python src/esco_cli.py ingest --config config/neo4j_config.yaml --embeddings-only
+
+# Delete existing data and re-ingest
+python src/esco_cli.py ingest --config config/neo4j_config.yaml --delete-all
 ```
-
-2. Embeddings only (when ESCO graph exists):
-```bash
-python src/esco_ingest.py --profile default --embeddings-only
-```
-
-Additional command-line options:
-```bash
-python src/esco_ingest.py \
-    --config "path/to/custom/config.yaml" \
-    --profile "aura" \
-    --embeddings-only
-```
-
-#### Full Ingestion Process
-
-When running the full ingestion process, the tool will:
-1. Delete all existing data from the Neo4j database
-2. Create necessary constraints
-3. Ingest skill groups
-4. Ingest individual skills
-5. Ingest occupations
-6. Ingest ISCO groups
-7. Create skill hierarchies
-8. Create ISCO hierarchies
-9. Create occupation-ISCO mappings
-10. Create occupation-skill relations
-11. Create skill-skill relations
-12. Generate and store embeddings for semantic search
-
-#### Embeddings-Only Process
-
-When running with `--embeddings-only`, the tool will:
-1. Create vector indexes for semantic search
-2. Generate embeddings for all skills and occupations
-3. Store the embeddings in Neo4j
-4. Skip all other ingestion steps
-
-This mode is useful when you want to enable semantic search on an existing ESCO graph without re-ingesting all the data.
 
 ### Semantic Search
 
-The tool includes a command-line interface for semantic search. You can use it in two modes:
-
-1. Full pipeline (default):
 ```bash
-python src/esco_search_cli.py --query "your search query" --password "your_password"
-```
+# Basic search
+python src/esco_cli.py search --query "python programming"
 
-2. Search-only mode (when data is already indexed):
-```bash
-python src/esco_search_cli.py --query "your search query" --password "your_password" --search-only
-```
-
-Additional search options:
-- `--type`: Specify node type to search (Skill, Occupation, or Both)
-- `--limit`: Maximum number of results to return
-- `--related`: Get related graph for the top result
-- `--json`: Output results in JSON format
-
-Example with all options:
-```bash
-python src/esco_search_cli.py \
-    --query "machine learning" \
+# Search with options
+python src/esco_cli.py search \
+    --query "python programming" \
     --type Skill \
     --limit 5 \
-    --related \
-    --json \
-    --search-only \
-    --password "your_password"
+    --threshold 0.7 \
+    --related
+
+# JSON output
+python src/esco_cli.py search --query "python programming" --json
 ```
 
-The search functionality uses the `all-MiniLM-L6-v2` model for generating embeddings, which provides a good balance between performance and quality. The search results include:
-- Semantic similarity scores
-- Node descriptions
-- Related entities (when using --related)
-- Graph context for each result
-
-### Hebrew Translation
-
-The tool includes functionality to translate English text to Hebrew using the T5 Hebrew translation model. This is particularly useful for creating Hebrew versions of node properties.
-
-To translate node properties to Hebrew:
+### Translation
 
 ```bash
-# For local Neo4j
-python src/esco_translate.py --profile default --property "preferredLabel" --type Skill
+# Translate skills
+python src/esco_cli.py translate --type Skill --property prefLabel
 
-# For AuraDB
-python src/esco_translate.py --profile aura --property "preferredLabel" --type Skill
-```
-
-Additional translation options:
-- `--config`: Path to custom YAML configuration file (default: config/neo4j_config.yaml)
-- `--profile`: Configuration profile to use ('default' or 'aura')
-- `--property`: The property to translate (e.g., "preferredLabel", "description")
-- `--type`: Node type to translate (Skill, Occupation, SkillGroup, or ISCOGroup)
-- `--batch-size`: Number of nodes to process in each batch (default: 100)
-- `--suffix`: Suffix for the translated property (default: "_he")
-- `--device`: Device to use for translation (cpu, cuda, or mps)
-
-Example with all options:
-```bash
-python src/esco_translate.py \
-    --config "config/neo4j_config.yaml" \
-    --profile "aura" \
-    --property "preferredLabel" \
+# Translate with options
+python src/esco_cli.py translate \
     --type Skill \
+    --property prefLabel \
     --batch-size 50 \
-    --suffix "_he" \
-    --device "cuda"
+    --device mps
 ```
 
-The translation process:
-1. Loads the T5 Hebrew translation model
-2. Processes nodes in batches to optimize memory usage
-3. Creates new properties with the specified suffix
-4. Preserves the original English text
-5. Updates the Neo4j database with translated content
+## Output Format
 
-Note: The translation model requires additional dependencies. Install them using:
-```bash
-pip install transformers torch
+The CLI provides structured, color-coded output for better readability:
+
+### Search Results
+```
+========================================================================
+ ESCO Semantic Search 
+========================================================================
+
+Query: python programming
+Type: Skill
+Threshold: 0.5
+
+----------------------------------------------------------------
+ Searching... 
+----------------------------------------------------------------
+
+----------------------------------------------------------------
+ Search Results 
+----------------------------------------------------------------
+
+1. [Skill] Python Programming (Score: 0.9234)
+   Description: The ability to write and maintain Python code...
+
+2. [Skill] Python Development (Score: 0.8912)
+   Description: Experience in developing applications using Python...
+```
+
+### Related Entities
+```
+----------------------------------------------------------------
+ Related entities for 'Python Programming' 
+----------------------------------------------------------------
+
+Essential Skills (3):
+  • Object-Oriented Programming
+  • Software Development
+  • Version Control
+
+Optional Skills (5):
+  • Web Development
+  • Database Management
+  • ... and 2 more
+```
+
+### Progress and Status
+```
+========================================================================
+ ESCO Data Ingestion 
+========================================================================
+
+----------------------------------------------------------------
+ Starting Ingestion 
+----------------------------------------------------------------
+
+Running full ingestion...
+✓ Ingestion completed successfully
+```
+
+## Configuration Profiles
+
+The tool supports two configuration profiles:
+
+### Default Profile (Local Development)
+```yaml
+default:
+  uri: "bolt://localhost:7687"
+  user: "neo4j"
+  password: "your-password"
+  max_retries: 3
+  retry_delay: 5
+  max_connection_lifetime: 3600
+  max_connection_pool_size: 50
+  connection_timeout: 30
+```
+
+### Aura Profile (Production)
+```yaml
+aura:
+  uri: "neo4j+s://your-instance-id.databases.neo4j.io"
+  user: "neo4j"
+  password: "your-password"
+  max_retries: 5
+  retry_delay: 10
+  max_connection_lifetime: 1800
+  max_connection_pool_size: 100
+  connection_timeout: 60
 ```
 
 ## Data Model
@@ -296,50 +316,47 @@ The tool creates the following node types and relationships:
 
 ## Performance
 
-The tool processes data in batches of 50,000 rows to optimize memory usage and performance. Progress is displayed using progress bars for each processing step.
-
-For semantic search:
-- Uses efficient vector indexes in Neo4j
-- Implements cosine similarity for matching
-- Supports batch processing for embedding generation
-- Includes search-only mode for faster subsequent searches
-- Allows separate embedding generation for existing graphs
+The tool processes data in batches to optimize memory usage and performance:
+- Default batch size: 50,000 rows for ingestion
+- Configurable batch size for translation
+- Efficient vector indexes for semantic search
+- Support for multiple devices (CPU, CUDA, MPS)
 
 ## Error Handling
 
-The tool includes comprehensive error handling and logging. Check the console output for any issues during the ingestion process.
-
-## Logging
-
-Logs are output to the console with timestamps and log levels. The tool logs:
-- Start and completion of each ingestion step
-- Any errors encountered during the process
-- Overall completion status
-- Search operations and results
-- Embedding generation progress
+The tool includes comprehensive error handling:
+- Clear error messages with color coding
+- Proper resource cleanup
+- Validation of configuration and input
+- Graceful handling of connection issues
 
 ## Troubleshooting
 
 If you encounter issues:
 
-1. Verify Neo4j connection details
-2. Ensure all required CSV files are present in the ESCO directory
-3. Check file permissions
-4. Verify CSV file formats match the expected structure
-5. Check Neo4j logs for any database-specific issues
-6. For search issues, verify that embeddings are properly generated
-7. Check if vector indexes are created in Neo4j
-8. When using embeddings-only mode, ensure the ESCO graph exists
+1. Configuration:
+   - Verify Neo4j connection details
+   - Check config file permissions
+   - Ensure correct profile is selected
+
+2. Data:
+   - Verify all required CSV files are present
+   - Check CSV file formats
+   - Ensure proper file permissions
+
+3. Search:
+   - Verify embeddings are generated
+   - Check vector indexes in Neo4j
+   - Try search-only mode if needed
+
+4. Translation:
+   - Ensure model is downloaded
+   - Check device compatibility
+   - Adjust batch size if needed
 
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ## Contributing
 

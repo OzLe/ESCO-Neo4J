@@ -89,7 +89,7 @@ export NEO4J_CONNECTION_TIMEOUT=60
 The application is configured to run in two containers:
 
 1. **Neo4j Container**:
-   - Runs Neo4j 5.11.0
+   - Runs Neo4j 5.14.0
    - Exposes ports 7474 (HTTP) and 7687 (Bolt)
    - Uses persistent volumes for data, logs, and plugins
    - Includes health checks

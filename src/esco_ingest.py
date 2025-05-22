@@ -331,20 +331,25 @@ class ESCOIngest:
 
     def generate_and_store_embeddings(self, embedding_util):
         """Generate embeddings for all skills and occupations"""
-        # Process skills
-        logger.info("Generating embeddings for skills")
+        # Get total count of nodes to process
         with self.client.driver.session() as session:
-            # Get total count of skills
-            count_query = "MATCH (s:Skill) RETURN count(s) as count"
-            total_skills = session.run(count_query).single()["count"]
+            # Get total count of skills and occupations
+            count_query = """
+                MATCH (n)
+                WHERE n:Skill OR n:Occupation
+                RETURN count(n) as count
+            """
+            total_nodes = session.run(count_query).single()["count"]
             
-            # Get skills in batches
-            query = "MATCH (s:Skill) RETURN s.conceptUri as uri, s.preferredLabel as label, s.description as description, s.altLabels as altLabels"
-            result = session.run(query)
-            
-            # Create a single progress bar for all skills
-            with tqdm(total=total_skills, desc="Embedding skills", unit="skills", 
+            # Create a single progress bar for all nodes
+            with tqdm(total=total_nodes, desc="Generating embeddings", unit="nodes",
                      bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]') as pbar:
+                
+                # Process skills
+                logger.info("Generating embeddings for skills")
+                query = "MATCH (s:Skill) RETURN s.conceptUri as uri, s.preferredLabel as label, s.description as description, s.altLabels as altLabels"
+                result = session.run(query)
+                
                 for record in result:
                     node_data = {
                         'preferredLabel': record['label'],
@@ -360,20 +365,12 @@ class ESCOIngest:
                             uri=record['uri'], embedding=embedding
                         )
                     pbar.update(1)
-        
-        # Process occupations
-        logger.info("Generating embeddings for occupations")
-        with self.client.driver.session() as session:
-            # Get total count of occupations
-            count_query = "MATCH (o:Occupation) RETURN count(o) as count"
-            total_occupations = session.run(count_query).single()["count"]
-            
-            query = "MATCH (o:Occupation) RETURN o.conceptUri as uri, o.preferredLabel as label, o.description as description, o.altLabels as altLabels"
-            result = session.run(query)
-            
-            # Create a single progress bar for all occupations
-            with tqdm(total=total_occupations, desc="Embedding occupations", unit="occupations",
-                     bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]') as pbar:
+                
+                # Process occupations
+                logger.info("Generating embeddings for occupations")
+                query = "MATCH (o:Occupation) RETURN o.conceptUri as uri, o.preferredLabel as label, o.description as description, o.altLabels as altLabels"
+                result = session.run(query)
+                
                 for record in result:
                     node_data = {
                         'preferredLabel': record['label'],

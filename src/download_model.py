@@ -5,13 +5,12 @@ import os
 import shutil
 import sys
 import glob
+import requests
+from tqdm import tqdm
+from logging_config import setup_logging
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# Setup logging
+logger = setup_logging()
 
 def verify_model_files(cache_dir):
     """Verify that all required model files are present."""

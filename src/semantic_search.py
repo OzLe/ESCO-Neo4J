@@ -1,5 +1,9 @@
 import logging
 from embedding_utils import ESCOEmbedding
+from logging_config import setup_logging
+
+# Setup logging
+logger = setup_logging()
 
 class ESCOSemanticSearch:
     def __init__(self, driver, embedding_util=None):
@@ -177,3 +181,36 @@ class ESCOSemanticSearch:
     def _format_nodes(self, nodes):
         """Format multiple nodes for output"""
         return [self._format_node(node) for node in nodes if node]
+
+    def semantic_search_with_profile(self, query_text, limit=10, similarity_threshold=0.5):
+        """Perform semantic search and retrieve complete occupation profiles
+        
+        Args:
+            query_text (str): The text to search for
+            limit (int): Maximum number of results to return
+            similarity_threshold (float): Minimum similarity score (0.0 to 1.0)
+            
+        Returns:
+            list: List of dictionaries containing search results with complete occupation profiles
+        """
+        # First hop: Perform semantic search for occupations
+        search_results = self.search(
+            query_text=query_text,
+            node_type="Occupation",
+            limit=limit,
+            similarity_threshold=similarity_threshold
+        )
+        
+        # Second hop: Retrieve complete profiles for each result
+        complete_results = []
+        for result in search_results:
+            profile = self.get_related_graph(result["uri"], node_type="Occupation")
+            if profile:
+                # Combine search result with complete profile
+                complete_result = {
+                    "search_result": result,
+                    "profile": profile
+                }
+                complete_results.append(complete_result)
+        
+        return complete_results

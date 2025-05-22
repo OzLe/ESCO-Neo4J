@@ -11,10 +11,27 @@ This tool is provided "AS IS", without warranty of any kind, express or implied,
 - Python 3.8 or higher
 - Neo4j Database (version 5.x) or Neo4j AuraDB
 - ESCO CSV files (v1.2.0 or compatible)
+- Docker and Docker Compose (for containerized deployment)
 
 ## Environment Setup
 
-### Using Conda (Recommended)
+### Using Docker (Recommended)
+
+The easiest way to run the application is using Docker Compose:
+
+1. Build and start the containers:
+```bash
+docker-compose up -d
+```
+
+2. Check the logs:
+```bash
+docker-compose logs -f
+```
+
+The application will automatically connect to Neo4j once it's healthy.
+
+### Using Conda (Alternative)
 
 The easiest way to set up the environment is using the provided `environment.yml` file:
 
@@ -51,11 +68,67 @@ cp config/neo4j_config.sample.yaml config/neo4j_config.yaml
 export NEO4J_URI="bolt://localhost:7687"
 export NEO4J_USER="neo4j"
 export NEO4J_PASSWORD="your-password"
+export NEO4J_PROFILE="default"
 
 # For AuraDB
 export NEO4J_URI="neo4j+s://your-instance-id.databases.neo4j.io"
 export NEO4J_USER="neo4j"
 export NEO4J_PASSWORD="your-password"
+export NEO4J_PROFILE="aura"
+
+# Optional configuration
+export NEO4J_MAX_RETRIES=5
+export NEO4J_RETRY_DELAY=10
+export NEO4J_MAX_CONNECTION_LIFETIME=1800
+export NEO4J_MAX_CONNECTION_POOL_SIZE=100
+export NEO4J_CONNECTION_TIMEOUT=60
+```
+
+### Docker Configuration
+
+The application is configured to run in two containers:
+
+1. **Neo4j Container**:
+   - Runs Neo4j 5.11.0
+   - Exposes ports 7474 (HTTP) and 7687 (Bolt)
+   - Uses persistent volumes for data, logs, and plugins
+   - Includes health checks
+   - Configurable through environment variables
+
+2. **ESCO Application Container**:
+   - Runs the Python application
+   - Connects to Neo4j using environment variables
+   - Mounts data and logs directories
+   - Waits for Neo4j to be healthy before starting
+
+To customize the Docker setup:
+
+1. Edit `docker-compose.yml`:
+```yaml
+services:
+  neo4j:
+    environment:
+      - NEO4J_AUTH=neo4j/your-password
+      - NEO4J_dbms_memory_pagecache_size=1G
+      # ... other Neo4j settings
+
+  esco-app:
+    environment:
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=your-password
+      # ... other application settings
+```
+
+2. For AuraDB, update the Neo4j connection:
+```yaml
+services:
+  esco-app:
+    environment:
+      - NEO4J_URI=neo4j+s://your-instance-id.databases.neo4j.io
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=your-aura-password
+      - NEO4J_PROFILE=aura
 ```
 
 ### Apple Silicon (M1/M2/M3) Notes
@@ -99,7 +172,9 @@ git clone <repository-url>
 cd ESCO-Ingest
 ```
 
-2. Follow the Environment Setup instructions above to create and activate the conda environment.
+2. Choose your setup method:
+   - For Docker: Follow the Docker setup instructions
+   - For local development: Follow the Conda setup instructions
 
 3. Configure your Neo4j connection as described in the Configuration section.
 
@@ -127,9 +202,11 @@ ESCO-Ingest/
 │   ├── broaderRelationsOccPillar_en.csv
 │   ├── occupationSkillRelations_en.csv
 │   └── skillSkillRelations_en.csv
-├── environment.yml              # Conda environment definition
-├── requirements.txt            # Pip requirements
-└── README.md                   # This file
+├── docker-compose.yml          # Docker Compose configuration
+├── Dockerfile                 # Docker build configuration
+├── environment.yml            # Conda environment definition
+├── requirements.txt          # Pip requirements
+└── README.md                 # This file
 ```
 
 Place your ESCO CSV files in the `ESCO` directory. The tool expects the following files:

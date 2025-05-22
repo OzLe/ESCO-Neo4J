@@ -11,10 +11,10 @@ from embedding_utils import ESCOEmbedding
 from esco_ingest import ESCOIngest
 from esco_translate import ESCOTranslator
 from download_model import download_model
+from logging_config import setup_logging
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# Setup logging
+logger = setup_logging()
 
 # ANSI color codes for terminal output
 class Colors:
@@ -196,6 +196,8 @@ Examples:
     search_parser.add_argument('--threshold', type=float, default=0.5,
                             help='Minimum similarity score threshold (0.0 to 1.0)')
     search_parser.add_argument('--json', action='store_true', help='Output results as JSON')
+    search_parser.add_argument('--profile-search', action='store_true',
+                            help='Perform semantic search and retrieve complete occupation profiles')
 
     # Translate command
     translate_parser = subparsers.add_parser('translate', parents=[common_parser], help='Translate ESCO data')
@@ -259,34 +261,66 @@ Examples:
                 search_service = ESCOSemanticSearch(driver, embedding_util)
                 
                 print_section("Searching...")
-                results = search_service.search(
-                    args.query, 
-                    args.type, 
-                    args.limit, 
-                    args.search_only,
-                    args.threshold
-                )
+                
+                if args.profile_search:
+                    if args.type != "Occupation":
+                        print(colorize("\nWarning: Profile search is only available for Occupation type. Switching to Occupation type.", Colors.YELLOW))
+                        args.type = "Occupation"
+                    
+                    results = search_service.semantic_search_with_profile(
+                        args.query,
+                        args.limit,
+                        args.threshold
+                    )
+                    
+                    if not results:
+                        print(colorize("\nNo results found.", Colors.YELLOW))
+                        return
+                    
+                    print_section("Search Results with Profiles")
+                    for i, result in enumerate(results, 1):
+                        search_result = result['search_result']
+                        print_result(search_result, i)
+                        print_related_nodes(result['profile'])
+                    
+                    if args.json:
+                        print("\n" + format_json_output({
+                            "query": args.query,
+                            "parameters": {
+                                "limit": args.limit,
+                                "similarity_threshold": args.threshold
+                            },
+                            "results": results
+                        }))
+                else:
+                    results = search_service.search(
+                        args.query, 
+                        args.type, 
+                        args.limit, 
+                        args.search_only,
+                        args.threshold
+                    )
 
-                if not results:
-                    print(colorize("\nNo results found.", Colors.YELLOW))
-                    return
+                    if not results:
+                        print(colorize("\nNo results found.", Colors.YELLOW))
+                        return
 
-                print_section("Search Results")
-                for i, result in enumerate(results, 1):
-                    print_result(result, i)
+                    print_section("Search Results")
+                    for i, result in enumerate(results, 1):
+                        print_result(result, i)
 
-                if args.related and results:
-                    print_related_nodes(search_service.get_related_graph(results[0]['uri'], results[0]['type']))
-
-                if args.json:
-                    related_graph = None
                     if args.related and results:
-                        related_graph = search_service.get_related_graph(results[0]['uri'], results[0]['type'])
-                    print("\n" + format_json_output({
-                        "query": args.query,
-                        "results": results,
-                        "related_graph": related_graph
-                    }))
+                        print_related_nodes(search_service.get_related_graph(results[0]['uri'], results[0]['type']))
+
+                    if args.json:
+                        related_graph = None
+                        if args.related and results:
+                            related_graph = search_service.get_related_graph(results[0]['uri'], results[0]['type'])
+                        print("\n" + format_json_output({
+                            "query": args.query,
+                            "results": results,
+                            "related_graph": related_graph
+                        }))
 
             elif args.command == 'translate':
                 print_header("ESCO Translation")

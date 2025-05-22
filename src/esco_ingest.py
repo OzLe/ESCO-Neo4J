@@ -3,15 +3,20 @@ import pandas as pd
 from tqdm import tqdm
 import logging
 import argparse
+import json
+import yaml
+from datetime import datetime
+from neo4j import GraphDatabase
 from neo4j_client import Neo4jClient
+from embedding_utils import ESCOEmbedding
+from logging_config import setup_logging
 
 # ESCO v1.2.0 (English) – CSV classification import for Neo4j 5.x
 # Oz Levi
 # 2025-05-11
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# Setup logging
+logger = setup_logging()
 
 class ESCOIngest:
     def __init__(self, config_path=None, profile='default'):

@@ -15,15 +15,14 @@ import importlib
 import yaml
 import os
 import glob
+import json
+from datetime import datetime
+from neo4j_client import Neo4jClient
+from transformers import MarianMTModel, MarianTokenizer
+from logging_config import setup_logging
 
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-logging.getLogger().setLevel(logging.DEBUG)
+# Setup logging
+logger = setup_logging()
 
 def verify_dependencies():
     """Verify that all required dependencies are installed."""

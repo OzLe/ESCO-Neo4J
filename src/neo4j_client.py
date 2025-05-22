@@ -5,18 +5,24 @@ import logging
 from urllib.parse import urlparse
 from neo4j import GraphDatabase
 from neo4j.exceptions import ServiceUnavailable, AuthError, ClientError
+from logging_config import setup_logging
 
-logger = logging.getLogger(__name__)
+# Setup logging
+logger = setup_logging()
 
 class Neo4jClient:
-    def __init__(self, config_path=None, profile='default'):
+    def __init__(self, config_path=None, profile=None):
         """
         Initialize Neo4j client with configuration
         
         Args:
             config_path (str): Path to YAML config file
-            profile (str): Configuration profile to use ('default' or 'aura')
+            profile (str): Configuration profile to use ('default', 'aura', or None for auto-detect)
         """
+        # Auto-detect profile from environment if not specified
+        if profile is None:
+            profile = os.getenv('NEO4J_PROFILE', 'default')
+        
         self.config = self._load_config(config_path, profile)
         self.driver = None
         self._connect()
@@ -38,12 +44,35 @@ class Neo4jClient:
             merged_config.update(profile_config)  # Override with profile-specific settings
             
             # Override with environment variables if they exist
-            if 'NEO4J_URI' in os.environ:
-                merged_config['uri'] = os.environ['NEO4J_URI']
-            if 'NEO4J_USER' in os.environ:
-                merged_config['user'] = os.environ['NEO4J_USER']
-            if 'NEO4J_PASSWORD' in os.environ:
-                merged_config['password'] = os.environ['NEO4J_PASSWORD']
+            env_mapping = {
+                'NEO4J_URI': 'uri',
+                'NEO4J_USER': 'user',
+                'NEO4J_PASSWORD': 'password',
+                'NEO4J_MAX_RETRIES': 'max_retries',
+                'NEO4J_RETRY_DELAY': 'retry_delay',
+                'NEO4J_MAX_CONNECTION_LIFETIME': 'max_connection_lifetime',
+                'NEO4J_MAX_CONNECTION_POOL_SIZE': 'max_connection_pool_size',
+                'NEO4J_CONNECTION_TIMEOUT': 'connection_timeout'
+            }
+            
+            for env_var, config_key in env_mapping.items():
+                if env_var in os.environ:
+                    value = os.environ[env_var]
+                    # Convert numeric values
+                    if config_key in ['max_retries', 'retry_delay', 'max_connection_lifetime', 
+                                    'max_connection_pool_size', 'connection_timeout']:
+                        try:
+                            value = int(value)
+                        except ValueError:
+                            logger.warning(f"Invalid numeric value for {env_var}: {value}")
+                            continue
+                    merged_config[config_key] = value
+            
+            # Validate required fields
+            required_fields = ['uri', 'user', 'password']
+            missing_fields = [field for field in required_fields if not merged_config.get(field)]
+            if missing_fields:
+                raise ValueError(f"Missing required configuration fields: {', '.join(missing_fields)}")
             
             return merged_config
         except Exception as e:
@@ -56,14 +85,18 @@ class Neo4jClient:
             try:
                 # Validate and potentially modify URI
                 parsed_uri = urlparse(self.config['uri'])
-                if parsed_uri.scheme == 'neo4j+s':
-                    # AuraDB connection - ensure proper format
-                    if not self.config['uri'].startswith('neo4j+s://'):
+                
+                # Handle different URI schemes
+                if parsed_uri.scheme in ['neo4j+s', 'neo4j+ssc']:
+                    # AuraDB connection
+                    if not self.config['uri'].startswith(('neo4j+s://', 'neo4j+ssc://')):
                         self.config['uri'] = self.config['uri'].replace('bolt://', 'neo4j+s://')
-                elif parsed_uri.scheme == 'bolt':
-                    # Local connection - ensure proper format
-                    if not self.config['uri'].startswith('bolt://'):
+                elif parsed_uri.scheme in ['bolt', 'bolt+s', 'bolt+ssc']:
+                    # Local or secure connection
+                    if not self.config['uri'].startswith(('bolt://', 'bolt+s://', 'bolt+ssc://')):
                         self.config['uri'] = f'bolt://{parsed_uri.netloc}'
+                else:
+                    raise ValueError(f"Unsupported URI scheme: {parsed_uri.scheme}")
                 
                 self.driver = GraphDatabase.driver(
                     self.config['uri'],

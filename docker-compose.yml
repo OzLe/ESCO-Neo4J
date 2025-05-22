@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   neo4j:
-    image: neo4j:5.11.0
+    image: neo4j:5.14.0
     container_name: esco_neo4j
     ports:
       - "7474:7474"  # HTTP
@@ -12,12 +12,18 @@ services:
       - NEO4J_dbms_memory_pagecache_size=1G
       - NEO4J_dbms_memory_heap_initial__size=1G
       - NEO4J_dbms_memory_heap_max__size=1G
-      - NEO4J_dbms_security_procedures_unrestricted=gds.*
-      - NEO4J_dbms_security_procedures_allowlist=gds.*
+      - NEO4J_dbms_security_procedures_allowlist=gds.*,apoc.*
+      - NEO4J_dbms_security_procedures_unrestricted=gds.*,apoc.*
+      - NEO4J_PLUGINS=["apoc", "graph-data-science"]
+      - NEO4J_ACCEPT_LICENSE_AGREEMENT=yes
+      - NEO4J_apoc_export_file_enabled=true
+      - NEO4J_apoc_import_file_enabled=true
+      - NEO4J_apoc_import_file_use__neo4j__config=true
     volumes:
       - neo4j_data:/data
       - neo4j_logs:/logs
       - neo4j_plugins:/plugins
+      - ./plugins:/plugins
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:7474"]
       interval: 10s
@@ -40,7 +46,8 @@ services:
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
-    command: python src/esco_cli.py
+    command: >
+      sh -c "python src/esco_cli.py ingest --config config/neo4j_config.yaml && tail -f /dev/null"
     restart: unless-stopped
     networks:
       - esco_network
@@ -52,4 +59,4 @@ networks:
 volumes:
   neo4j_data:
   neo4j_logs:
-  neo4j_plugins: 
+  neo4j_plugins:

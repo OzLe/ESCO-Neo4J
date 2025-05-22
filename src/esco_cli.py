@@ -143,6 +143,41 @@ def setup_neo4j_connection(config, profile='default'):
         connection_timeout=neo4j_config.get('connection_timeout', 30)
     )
 
+def setup_logging(level=logging.INFO):
+    """Setup logging configuration for all modules
+    
+    Args:
+        level (int): Logging level (default: logging.INFO)
+    """
+    # Create logs directory if it doesn't exist
+    os.makedirs('logs', exist_ok=True)
+    
+    # Configure logging format
+    log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    
+    # Configure root logger
+    logging.basicConfig(
+        level=level,
+        format=log_format,
+        handlers=[
+            logging.StreamHandler(),  # Console handler
+            logging.FileHandler('logs/esco.log')  # File handler
+        ]
+    )
+    
+    # Set specific logger levels
+    logging.getLogger('neo4j').setLevel(logging.WARNING)  # Reduce Neo4j driver logging
+    logging.getLogger('urllib3').setLevel(logging.WARNING)  # Reduce urllib3 logging
+    logging.getLogger('tqdm').setLevel(logging.WARNING)  # Reduce tqdm logging
+    logging.getLogger('sentence_transformers').setLevel(logging.WARNING)  # Reduce sentence-transformers logging
+    logging.getLogger('transformers').setLevel(logging.WARNING)  # Reduce transformers logging
+    
+    # Disable tqdm progress bars for specific modules
+    import tqdm
+    tqdm.tqdm.monitor_interval = 0  # Disable tqdm monitoring
+    
+    return logging.getLogger(__name__)
+
 def main():
     parser = argparse.ArgumentParser(
         description='ESCO Data Management and Search CLI',
@@ -172,6 +207,8 @@ Examples:
     common_parser.add_argument('--profile', type=str, default='default', 
                              choices=['default', 'aura'],
                              help='Configuration profile to use')
+    common_parser.add_argument('--quiet', action='store_true',
+                             help='Reduce output verbosity')
 
     # Create subparsers for different commands
     subparsers = parser.add_subparsers(dest='command', help='Command to execute')
@@ -235,9 +272,9 @@ Examples:
 
             if args.command == 'ingest':
                 print_header("ESCO Data Ingestion")
+                ingest = ESCOIngest(args.config, args.profile)
                 if args.delete_all:
                     print_section("Deleting Existing Data")
-                    ingest = ESCOIngest(args.config, args.profile)
                     ingest.delete_all_data()
                     print(colorize("✓ All data deleted", Colors.GREEN))
                 

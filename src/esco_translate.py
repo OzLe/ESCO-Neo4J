@@ -393,7 +393,10 @@ class ESCOTranslator:
 
         logger.info(f"Found {total_nodes} nodes to translate")
         
-        for i in tqdm(range(0, total_nodes, batch_size), desc="Translating batches"):
+        # Process in batches
+        for i in tqdm(range(0, total_nodes, batch_size), 
+                     desc="Translating batches",
+                     bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]'):
             batch = nodes[i:i + batch_size]
             
             # Process batch in parallel
